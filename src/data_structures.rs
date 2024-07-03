@@ -35,6 +35,17 @@ impl std::fmt::Display for BadLatitudeError {
     }
 }
 
+#[derive(Debug)]
+pub struct BadLongitudeError(String);
+
+impl Error for BadLongitudeError {}
+
+impl std::fmt::Display for BadLongitudeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "Bad longitude: {} (it should be of range: -360 to 360)", self.0)
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub struct DecimalLat(f64);
 impl DecimalLat {
@@ -52,8 +63,11 @@ impl DecimalLat {
 #[derive(Debug, PartialEq, Clone)]
 pub struct DecimalLon(f64);
 impl DecimalLon {
-    pub fn new(lon: f64) -> DecimalLon {
-        DecimalLon(lon)
+    pub fn new(lon: f64) -> Result<DecimalLon, BadLongitudeError> {
+        if lon < -360.0 || lon > 360.0 {
+            return Err(BadLongitudeError(lon.to_string()));
+        }
+        Ok(DecimalLon(lon))
     }
     pub fn val(&self) -> f64 {
         self.0
@@ -74,18 +88,21 @@ impl<'de> Deserialize<'de> for DecimalLon {
     where
         D: Deserializer<'de>,
     {
-        Ok(DecimalLon::new(f64::deserialize(deserializer)?))
+        DecimalLon::new(f64::deserialize(deserializer)?).map_err(|e| serde::de::Error::custom(e))
     }
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Debug)]
 pub struct Region {
-    #[serde(rename(serialize = "region"))]
     pub name: String,
-    #[serde(rename="coordinates", skip_serializing)]
+    #[serde(rename="coordinates")]
     pub polygons: Vec<Polygon>,
-    #[serde(skip_deserializing)]
-    pub matched_locations: Vec<Location>,
+}
+
+#[derive(Serialize, Debug)]
+pub struct MatchedResult {
+    pub region: String,
+    pub matched_locations: Vec<Location> 
 }
 
 #[derive(Debug)]
@@ -100,7 +117,7 @@ impl<'de> Deserialize<'de> for Polygon {
     {
         let vertices: Vec<Coordinates> = Vec::deserialize(deserializer)?;
         if vertices.len() < 4 {
-            return Err(serde::de::Error::custom("Polygon must have at least 3 vertices"));
+            return Err(serde::de::Error::custom("Polygon must have at least 4 vertices (it should start and end with the same vertex)"));
         }
         if vertices.first().unwrap() != vertices.last().unwrap() {
             return Err(serde::de::Error::custom("Polygon must be closed"));
@@ -192,113 +209,52 @@ mod tests {
     }
 
     #[test]
-    fn test_serialize_region() {
-        let regions = vec![
-            Region {
-                name: "tatry_slovakia".into(),
-                polygons: vec![
-                    Polygon {
-                        vertices: vec![
-                            Coordinates {
-                                latitude: DecimalLat::new(49.37351801413155).unwrap(),
-                                longitude: DecimalLon::new(19.67847490452553),
-                            },
-                            Coordinates {
-                                latitude: DecimalLat::new(49.23803996442288).unwrap(),
-                                longitude: DecimalLon::new(19.304812334103275),
-                            },
-                            Coordinates {
-                                latitude: DecimalLat::new(49.097478621327554).unwrap(),
-                                longitude: DecimalLon::new(19.328347447593416),
-                            },
-                            Coordinates {
-                                latitude: DecimalLat::new(49.16226149904949).unwrap(),
-                                longitude: DecimalLon::new(19.547539671978996),
-                            },
-                            Coordinates {
-                                latitude: DecimalLat::new(49.125183242944075).unwrap(),
-                                longitude: DecimalLon::new(19.795878887634984),
-                            },
-                            Coordinates {
-                                latitude: DecimalLat::new(49.37351801413155).unwrap(),
-                                longitude: DecimalLon::new(19.67847490452553),
-                            },
-                        ],
-                    },
-                ],
+    fn test_serialize_result() {
+        let result = vec![
+            MatchedResult {
+                region: "tatry_slovakia".into(),
                 matched_locations: vec![
                     Location { 
                         name: "Location 1".into(),
                         coordinates: Coordinates {
                             latitude: DecimalLat::new(49.24340413142335).unwrap(),
-                            longitude: DecimalLon::new(19.726640710592307),
+                            longitude: DecimalLon::new(19.726640710592307).unwrap(),
                         },
                     },
                     Location {
                         name: "Location 2".into(),
                         coordinates: Coordinates {
                             latitude: DecimalLat::new(49.232581877359536).unwrap(),
-                            longitude: DecimalLon::new(19.36788978252892),
+                            longitude: DecimalLon::new(19.36788978252892).unwrap(),
                         },
                     },
                 ],
             },
-            Region {
-                name: "tatry_poland_slovakia".into(),
-                polygons: vec![
-                    Polygon {
-                        vertices: vec![
-                            Coordinates {
-                                latitude: DecimalLat::new(49.31803102546846).unwrap(),
-                                longitude: DecimalLon::new(19.855860471519293),
-                            },
-                            Coordinates {
-                                latitude: DecimalLat::new(49.250310004550215).unwrap(),
-                                longitude: DecimalLon::new(19.70351226362419),
-                            },
-                            Coordinates {
-                                latitude: DecimalLat::new(49.17191660346475).unwrap(),
-                                longitude: DecimalLon::new(19.757887614103993),
-                            },
-                            Coordinates {
-                                latitude: DecimalLat::new(49.15403200004263).unwrap(),
-                                longitude: DecimalLon::new(20.25482071219585),
-                            },
-                            Coordinates {
-                                latitude: DecimalLat::new(49.26147108985464).unwrap(),
-                                longitude: DecimalLon::new(20.332680386606796),
-                            },
-                            Coordinates {
-                                latitude: DecimalLat::new(49.31803102546846).unwrap(),
-                                longitude: DecimalLon::new(19.855860471519293),
-                            },
-                        ],
-                    }
-                ],
+            MatchedResult {
+                region: "tatry_poland_slovakia".into(),
                 matched_locations: vec![
                     Location {
                         name: "Location 1".into(),
                         coordinates: Coordinates {
                             latitude: DecimalLat::new(49.24340413142335).unwrap(),
-                            longitude: DecimalLon::new(19.726640710592307),
+                            longitude: DecimalLon::new(19.726640710592307).unwrap(),
                         },
                     },
                     Location {
                         name: "Location 3".into(),
                         coordinates: Coordinates {
                             latitude: DecimalLat::new(49.24476375835607).unwrap(),
-                            longitude: DecimalLon::new(20.219267732042425),
+                            longitude: DecimalLon::new(20.219267732042425).unwrap(),
                         },
                     },
                 ],
             },
-            Region {
-                name: "empty".to_owned(),
-                polygons: vec![],
+            MatchedResult {
+                region: "empty".to_owned(),
                 matched_locations: vec![]
             }
         ];
-        let json_str = serde_json::to_string(&regions).unwrap();
+        let json_str = serde_json::to_string(&result).unwrap();
         assert_eq!(r#"[{"region":"tatry_slovakia","matched_locations":["Location 1","Location 2"]},{"region":"tatry_poland_slovakia","matched_locations":["Location 1","Location 3"]},{"region":"empty","matched_locations":[]}]"#.to_owned(), json_str);
     }
 
@@ -313,7 +269,21 @@ mod tests {
         }"#;
         let result: Result<Location, _> = serde_json::from_str(json);
         let error = result.unwrap_err();
-        assert_eq!(error.classify(), serde_json::error::Category::Data);
+        assert_eq!(error.to_string(), "Bad latitude: 94.64057937965808 (it should be of range: -90 to 90) at line 6 column 13");
+    }
+
+    #[test]
+    fn test_bad_longitude() {
+        let json = r#"{
+            "name": "location1",
+            "coordinates": [
+                360.099044587495996,
+                55.697364539462455
+            ]
+        }"#;
+        let result: Result<Location, _> = serde_json::from_str(json);
+        let error = result.unwrap_err();
+        assert_eq!(error.to_string(), "Bad longitude: 360.099044587496 (it should be of range: -360 to 360) at line 5 column 16");
     }
 
     #[test]
@@ -331,6 +301,10 @@ mod tests {
                     55.63985211052827
                     ],
                     [
+                    21.15167699979246,
+                    55.33985211052827
+                    ],
+                    [
                     21.135756051329366,
                     55.80067402588713
                     ]
@@ -339,7 +313,7 @@ mod tests {
             }"#;
         let result: Result<Region, _> = serde_json::from_str(json);
         let error = result.unwrap_err();
-        assert_eq!(error.classify(), serde_json::error::Category::Data);
+        assert_eq!(error.to_string(), "Polygon must be closed at line 22 column 13");
     }
 
     #[test]
@@ -365,7 +339,7 @@ mod tests {
             }"#;
         let result: Result<Region, _> = serde_json::from_str(json);
         let error = result.unwrap_err();
-        assert_eq!(error.classify(), serde_json::error::Category::Data);
+        assert_eq!(error.to_string(), "Polygon must have at least 4 vertices (it should start and end with the same vertex) at line 18 column 13");
     }
 
 }

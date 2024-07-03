@@ -21,22 +21,34 @@ struct Cli {
 
 fn main() {
     let cli = Cli::parse();
-    let locations_file = File::open(&cli.locations)
-        .expect(&format!("Location file not found! (looked in {})", cli.locations.display()));
-    let locations: Vec<Location> = serde_json::from_reader(BufReader::new(locations_file))
-        .expect(&format!("An error occurred while reading the locations file! ({})", cli.locations.display()));
+    let locations_result: Result<Vec<Location>, std::string::String> = File::open(&cli.locations)
+        .map_err(|e| format!("Location file error! (looked in {}), os: {}", cli.locations.display(), e))
+        .and_then(|locations_file| 
+            serde_json::from_reader(BufReader::new(locations_file))
+                .map_err(|e| format!("An error occurred while reading the locations file! {}", e))
+        )
+        .inspect_err(|e| println!("{}", e));
+    let regions_result: Result<Vec<Region>, std::string::String> = File::open(&cli.regions)
+        .map_err(|e| format!("Region file error! (looked in {}), os: {}", cli.regions.display(), e))
+        .and_then(|regions_file| 
+            serde_json::from_reader(BufReader::new(regions_file))
+                .map_err(|e| format!("An error occurred while reading the regions file! {}", e))
+        )
+        .inspect_err(|e| println!("{}", e));
 
-    let regions_file = File::open(&cli.regions)
-        .expect(&format!("Regions file not found! (looked in {})", cli.regions.display()));
-    let mut regions: Vec<Region> = serde_json::from_reader(BufReader::new(regions_file))
-        .expect(&format!("An error occurred while reading the regions file! ({})", cli.regions.display()));
+    let (locations, regions) = match (locations_result, regions_result) {
+        (Ok(locs), Ok(regs)) => (locs, regs),
+        _ => {
+            return;
+        }
+    };
 
-    match_locations_to_regions(&locations, &mut regions);
+    let matched_results = match_locations_to_regions(&locations, &regions);
 
     let file = File::create(&cli.output)
         .expect("Cannot create output file!");
     let mut writer = BufWriter::new(file);
-    serde_json::to_writer_pretty(&mut writer, &regions)
-        .expect("Cannot serialize output!");
+
+    serde_json::to_writer_pretty(&mut writer, &matched_results).unwrap();
     writer.flush().unwrap();
 }
