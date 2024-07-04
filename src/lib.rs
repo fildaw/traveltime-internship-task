@@ -17,17 +17,12 @@ pub fn match_locations_to_regions(locations: &Vec<Location>, regions: &Vec<Regio
         MatchedResult { 
             region: region.name.clone(),
             matched_locations: region.polygons.iter()
-                .map(
+                .flat_map(
                     |poly| 
-                    geo::Polygon::new(
+                    locations.iter().filter(move |loc| geo::Polygon::new(
                         create_linestring_from_coord_vec(&poly.vertices), vec![]
-                    )
+                    ).contains(&create_geopoint_from_loc(loc))) // Select these locations, which match the polygon
                 )
-                .map(
-                    |geo_polygon| 
-                    locations.iter().filter(move |loc| geo_polygon.contains(&create_geopoint_from_loc(loc))) // Select these locations, which match the polygon
-                )
-                .flatten()
                 .cloned()
                 .collect()
         }
